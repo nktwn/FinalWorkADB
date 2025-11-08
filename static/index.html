@@ -3,31 +3,41 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Каталог</title>
+  <title>Каталог — Reco Demo</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">Reco Demo</div>
   <nav>
-    <a class="active" href="/">Каталог</a>
-    <a href="/user.html">Пользователь</a>
-    <a href="/cart.html">Корзина (<span data-cart-count>0</span>)</a>
+    <a href="/" class="active">Каталог</a>
+    <a href="/user.html">Профиль</a>
+    <a href="/cart.html">Корзина</a>
   </nav>
-  <div class="status">status: <span data-auth-status>anonymous</span></div>
 </header>
 
 <main class="container">
-  <section class="toolbar">
-    <input id="searchInput" placeholder="Поиск по бренду/модели..." />
-    <button id="btnSearch" class="btn">Искать</button>
+  <section class="panel">
+    <div class="row">
+      <input id="searchInput" type="text" placeholder="Поиск по бренду/модели/категории…" />
+      <button id="btnSearch" class="btn">Найти</button>
+    </div>
+    <div id="output" class="output mono"></div>
   </section>
 
-  <section id="grid" class="grid"></section>
+  <section id="recoSection" class="panel" style="display:none;">
+    <div class="panel-title">
+      <h2>Рекомендации для вас</h2>
+      <div id="recoHint" class="muted">Нужна авторизация</div>
+    </div>
+    <div id="recoList" class="grid"></div>
+  </section>
 
-  <section>
-    <h3>Лог</h3>
-    <pre id="output" class="log"></pre>
+  <section class="panel">
+    <div class="panel-title">
+      <h2>Каталог</h2>
+    </div>
+    <div id="products" class="grid"></div>
   </section>
 </main>
 

@@ -160,3 +160,25 @@ async def buy_product(request: Request, product_id: str):
         raise HTTPException(status_code=502, detail=f"Java buy failed: {resp.text}")
 
     return {"message": resp.text or "OK"}
+
+@router.get("/users/me/recommendation")
+async def me_recommendation(request: Request):
+
+    if not (_auth_from_request(request) or _extra_headers(request)):
+        raise HTTPException(status_code=401, detail="Authorization required")
+
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.get("/api/v1/users/me/recommendation")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"Java recommendation failed: {resp.text}")
+
+    return resp.json()

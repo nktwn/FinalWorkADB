@@ -1,91 +1,88 @@
-import { fetchJSON, out, getAuthToken, reflectAuthStatus, cartAdd } from "./common.js";
+import { fetchJSON, out, getAuthToken } from "./common.js";
+
+function isLoggedIn() {
+  return !!getAuthToken();
+}
 
 function productCard(p) {
-  const id = p.id ?? "";
+  const id = p.id || "";
+  const brand = p.brand || "?";
+  const model = p.model || "?";
+  const category = p.category || "-";
+  const price = (p.price ?? "-");
+
   return `
     <div class="card">
-      <div class="card-head">
-        <h3>${p.brand || "?"} — ${p.model || "?"}</h3>
-        <a class="link" href="/product.html?id=${encodeURIComponent(id)}">Открыть</a>
-      </div>
+      <h3>${brand} — ${model}</h3>
       <div class="mono">id: ${id}</div>
-      <div>Категория: <b>${p.category || "-"}</b></div>
-      <div>Цена: <b>${p.price ?? "-"}</b></div>
-      <div class="btn-row">
-        <button class="btn action" data-act="like" data-id="${id}">Like</button>
-        <button class="btn action" data-act="unlike" data-id="${id}">Unlike</button>
-        <button class="btn action" data-act="cart" data-id="${id}" data-brand="${p.brand || ""}" data-model="${p.model || ""}" data-price="${p.price ?? ""}">Add to Cart</button>
-        <button class="btn action" data-act="buy" data-id="${id}">Buy Now</button>
+      <div>Категория: <b>${category}</b></div>
+      <div>Цена: <b>${price}</b></div>
+      <div class="actions">
+        <a class="link" href="/product.html?id=${encodeURIComponent(id)}">Открыть</a>
       </div>
     </div>
   `;
 }
 
-async function loadProducts() {
+function renderList(el, items) {
+  if (!items || items.length === 0) {
+    el.innerHTML = `<div class="muted">Ничего не найдено</div>`;
+    return;
+  }
+  el.innerHTML = items.map(productCard).join("");
+}
+
+async function loadCatalog(q = "") {
+  const url = q
+    ? `/api/v1/search?q=${encodeURIComponent(q)}`
+    : `/api/v1/java/products?use_cache=${isLoggedIn() ? "false" : "true"}`;
+
   try {
-    const useCache = getAuthToken() ? "false" : "true";
-    const data = await fetchJSON(`/api/v1/java/products?use_cache=${useCache}`);
-    renderGrid(data.items || []);
+    const data = await fetchJSON(url);
+    const list = document.getElementById("products");
+    renderList(list, (data.items || data) ?? []);
   } catch (e) {
     out(e.message);
-    renderGrid([]);
   }
 }
 
-function renderGrid(items) {
-  const grid = document.getElementById("grid");
-  if (!grid) return;
-  grid.innerHTML = items.length
-    ? items.map(productCard).join("")
-    : `<div class="muted">Нет товаров</div>`;
-  reflectAuthStatus();
-}
+async function loadRecommendations() {
+  const section = document.getElementById("recoSection");
+  const list = document.getElementById("recoList");
+  const hint = document.getElementById("recoHint");
 
-async function handleAction(e) {
-  const btn = e.target.closest("button.action"); if (!btn) return;
-  const act = btn.dataset.act; const id = btn.dataset.id;
+  if (!section || !list) return;
+
+  if (!isLoggedIn()) {
+    section.style.display = "none";
+    return;
+  }
+
   try {
-    if (act === "like") {
-      if (!getAuthToken()) return out("Нужна авторизация");
-      const res = await fetchJSON(`/api/v1/java/products/${id}/like`, { method: "POST" });
-      out(res);
-    } else if (act === "unlike") {
-      if (!getAuthToken()) return out("Нужна авторизация");
-      const res = await fetchJSON(`/api/v1/java/products/${id}/like`, { method: "DELETE" });
-      out(typeof res === "string" ? res : "unliked (204)");
-    } else if (act === "cart") {
-      const item = {
-        id,
-        brand: btn.dataset.brand || "",
-        model: btn.dataset.model || "",
-        price: btn.dataset.price ? Number(btn.dataset.price) : null
-      };
-      cartAdd(item);
-      out(`Добавлено в корзину: ${item.brand} ${item.model}`);
-    } else if (act === "buy") {
-      if (!getAuthToken()) return out("Нужна авторизация");
-      const res = await fetchJSON(`/api/v1/java/products/${id}/buy`, { method: "POST" });
-      out(res);
-    }
-  } catch (err) {
-    out(err.message);
+    const items = await fetchJSON(`/api/v1/java/users/me/recommendation`);
+    section.style.display = "block";
+    hint.textContent = items.length ? "" : "Пока нет рекомендаций";
+    renderList(list, items);
+  } catch (e) {
+    section.style.display = "none";
+    out(e.message);
   }
 }
 
 async function onSearch() {
   const q = document.getElementById("searchInput").value.trim();
-  try {
-    const data = await fetchJSON(`/api/v1/search?q=${encodeURIComponent(q)}`);
-    renderGrid(data.items || []);
-    out({ search: q, count: data.count });
-  } catch (e) {
-    out(e.message);
-  }
+  await loadCatalog(q);
+  out(q ? { search: q } : "");
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  document.addEventListener("click", handleAction);
-  const btn = document.getElementById("btnSearch");
-  if (btn) btn.addEventListener("click", onSearch);
-  loadProducts();
+document.getElementById("btnSearch").addEventListener("click", onSearch);
+
+loadRecommendations();
+loadCatalog();
+
+window.addEventListener("storage", (ev) => {
+  if (ev.key === "AUTH_TOKEN") {
+    loadRecommendations();
+    loadCatalog();
+  }
 });
