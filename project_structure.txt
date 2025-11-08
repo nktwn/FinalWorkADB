@@ -1,0 +1,588 @@
+fastapi-reco
+├── .env
+├── .idea
+│   ├── .gitignore
+│   └── vcs.xml
+├── Dockerfile
+├── app
+│   ├── __pycache__
+│   │   └── main.cpython-313.pyc
+│   ├── core
+│   │   ├── __pycache__
+│   │   │   ├── cache.cpython-313.pyc
+│   │   │   ├── config.cpython-313.pyc
+│   │   │   └── http_client.cpython-313.pyc
+│   │   ├── cache.py
+│   │   ├── config.py
+│   │   └── http_client.py
+│   ├── main.py
+│   ├── models
+│   │   └── dto.py
+│   ├── routers
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │   ├── __init__.cpython-313.pyc
+│   │   │   ├── health.cpython-313.pyc
+│   │   │   ├── java_proxy.cpython-313.pyc
+│   │   │   └── search.cpython-313.pyc
+│   │   ├── health.py
+│   │   ├── java_proxy.py
+│   │   └── search.py
+│   └── services
+│       └── store.py
+├── docker-compose.yml
+├── project_structure.txt
+├── requirements.txt
+├── static
+│   ├── app.js
+│   ├── cart.html
+│   ├── cart.js
+│   ├── catalog.js
+│   ├── common.js
+│   ├── index.html
+│   ├── product.html
+│   ├── product.js
+│   ├── styles.css
+│   ├── user.html
+│   └── user.js
+└── x.py
+
+
+# Python and .env files content
+
+
+--- x.py ---
+import os
+
+def write_tree_and_py_content(root_dir, output_file):
+    with open(output_file, "w", encoding="utf-8") as f:
+        def walk(dir_path, prefix=""):
+            items = sorted(os.listdir(dir_path))
+            for i, item in enumerate(items):
+                path = os.path.join(dir_path, item)
+
+                if item == ".venv":
+                    continue
+
+                connector = "└── " if i == len(items) - 1 else "├── "
+                f.write(prefix + connector + item + "\n")
+                if os.path.isdir(path):
+                    extension = "    " if i == len(items) - 1 else "│   "
+                    walk(path, prefix + extension)
+
+        f.write(f"{os.path.basename(root_dir)}\n")
+        walk(root_dir)
+
+        f.write("\n\n# Python and .env files content\n\n")
+        for dirpath, _, filenames in os.walk(root_dir):
+            if ".venv" in dirpath.split(os.sep):
+                continue
+
+            for filename in filenames:
+                if filename.endswith(".py") or filename.endswith(".env"):
+                    filepath = os.path.join(dirpath, filename)
+                    relpath = os.path.relpath(filepath, root_dir)
+                    f.write(f"\n--- {relpath} ---\n")
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as pyf:
+                            f.write(pyf.read())
+                    except Exception as e:
+                        f.write(f"\n[Ошибка чтения файла: {e}]\n")
+
+if __name__ == "__main__":
+    current_dir = os.getcwd()
+    write_tree_and_py_content(current_dir, "project_structure.txt")
+    print("Готово! Смотри файл project_structure.txt")
+--- .env ---
+JAVA_BASE_URL=http://java-service:8080
+#JAVA_BASE_URL=http://host.docker.internal:8080
+
+JAVA_SVC_USERNAME=service_bot
+JAVA_SVC_PASSWORD=service_bot_secret
+
+PORT=9000
+
+HTTP_WRITE_TIMEOUT=8
+HTTP_POOL_TIMEOUT=5
+
+--- app/main.py ---
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
+
+from app.core.http_client import java_client
+from app.routers import health, java_proxy
+from app.routers import search as search_router
+
+logger = logging.getLogger("fastapi-reco")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s: %(message)s",
+)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    try:
+        await java_client.ensure_service_user()
+    except Exception as e:
+        logger.warning("[startup] Registration attempt failed: %s", e)
+    logger.info("[startup] FastAPI is up; Java base: %s", java_client.base_url)
+
+    yield
+
+    try:
+        await java_client.aclose()
+    except Exception:
+        pass
+
+app = FastAPI(
+    title="FastAPI Reco Service",
+    version="0.2.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health.router)
+app.include_router(java_proxy.router)
+app.include_router(search_router.router)
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="127.0.0.1", port=9000, reload=True)
+
+--- app/routers/java_proxy.py ---
+from fastapi import APIRouter, HTTPException, Query, Request
+from app.core.http_client import java_client
+from app.core.cache import TTLCache
+
+router = APIRouter(prefix="/api/v1/java", tags=["java-proxy"])
+_products_cache = TTLCache(ttl_seconds=60)
+
+
+def _auth_from_request(request: Request) -> str | None:
+    return request.headers.get("authorization")
+
+
+def _extra_headers(request: Request) -> dict:
+    x = request.headers.get("x-user") or request.headers.get("x-username")
+    return {"X-User": x} if x else {}
+
+
+def _ensure_auth_or_401(request: Request):
+    if not (_auth_from_request(request) or _extra_headers(request)):
+        raise HTTPException(status_code=401, detail="Authorization required")
+
+
+@router.get("/me/username")
+async def me_username(request: Request):
+    _ensure_auth_or_401(request)
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.get("/api/v1/users/me/username")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"Java me/username failed: {resp.text}")
+
+    return {"java_username": resp.text.strip().strip('"')}
+
+
+@router.get("/users/me/history")
+async def me_history(request: Request, limit: int | None = None, all: bool | None = True):
+    _ensure_auth_or_401(request)
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    params = {}
+    if limit is not None:
+        params["limit"] = str(limit)
+    if all is not None:
+        params["all"] = "true" if all else "false"
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.get("/api/v1/users/me/history", params=params)
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"Java me/history failed: {resp.text}")
+
+    return resp.json()
+
+
+@router.get("/products")
+async def list_products(request: Request, use_cache: bool = Query(True)):
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async def producer():
+        async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+            resp = await c.get("/api/v1/products/")
+        if resp.status_code == 401:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        try:
+            resp.raise_for_status()
+        except Exception:
+            raise HTTPException(status_code=502, detail=f"Java products failed: {resp.text}")
+        return resp.json()
+
+    data = await (_products_cache.get_or_set("all_products", producer) if use_cache and not auth else producer())
+    return {"count": len(data), "items": data}
+
+
+@router.get("/products/{product_id}")
+async def get_product(request: Request, product_id: str):
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.get(f"/api/v1/products/{product_id}")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if resp.status_code == 500:
+        raise HTTPException(status_code=404, detail="Product not found")
+    try:
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"Java product {product_id} failed: {resp.text}")
+    return resp.json()
+
+
+@router.post("/products/{product_id}/like")
+async def like_product(request: Request, product_id: str):
+    _ensure_auth_or_401(request)
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.post(f"/api/v1/products/{product_id}/like")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if resp.status_code == 500:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=502, detail=f"Java like failed: {resp.text}")
+
+    await _products_cache.invalidate("all_products")
+    return {"message": resp.text or "OK"}
+
+
+@router.delete("/products/{product_id}/like")
+async def unlike_product(request: Request, product_id: str):
+    _ensure_auth_or_401(request)
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.delete(f"/api/v1/products/{product_id}/like")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if resp.status_code == 500:
+        return {"status": 204}
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=502, detail=f"Java unlike failed: {resp.text}")
+
+    await _products_cache.invalidate("all_products")
+    return {"status": resp.status_code}
+
+
+@router.post("/products/{product_id}/buy")
+async def buy_product(request: Request, product_id: str):
+    _ensure_auth_or_401(request)
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.post(f"/api/v1/products/{product_id}/buy")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if resp.status_code == 500:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=502, detail=f"Java buy failed: {resp.text}")
+
+    return {"message": resp.text or "OK"}
+
+--- app/routers/health.py ---
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api/v1/health", tags=["health"])
+
+@router.get("")
+async def health():
+    return {"status": "ok"}
+
+--- app/routers/__init__.py ---
+
+--- app/routers/search.py ---
+from fastapi import APIRouter, Query, HTTPException
+from typing import Optional, List
+from app.core.http_client import java_client
+
+router = APIRouter(prefix="/api/v1/search", tags=["search"])
+
+def _match_tokens(s: str, tokens: List[str]) -> bool:
+    s = (s or "").lower()
+    return all(t in s for t in tokens)
+
+@router.get("")
+async def search(
+    q: str = Query(""),
+    category: Optional[str] = None,
+    price_from: Optional[int] = None,
+    price_to: Optional[int] = None,
+    limit: int = Query(50, ge=1, le=200),
+):
+    try:
+        items = await java_client.get_products()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Java products failed: {e}")
+
+    tokens = [t.strip().lower() for t in q.split()] if q else []
+    out = []
+    for it in items:
+        if category and it.get("category") != category:
+            continue
+        price = it.get("price") or 0
+        if price_from is not None and price < price_from:
+            continue
+        if price_to is not None and price > price_to:
+            continue
+        if tokens:
+            hay = " ".join([str(it.get("brand") or ""), str(it.get("model") or "")])
+            if not _match_tokens(hay, tokens):
+                continue
+        out.append(it)
+        if len(out) >= limit:
+            break
+
+    return {"count": len(out), "items": out}
+
+--- app/core/config.py ---
+from pydantic import BaseModel
+import os
+
+class Settings(BaseModel):
+    java_base_url: str = os.getenv("JAVA_BASE_URL", "http://localhost:8080")
+    java_svc_username: str = os.getenv("JAVA_SVC_USERNAME", "service_bot")
+    java_svc_password: str = os.getenv("JAVA_SVC_PASSWORD", "service_bot_secret")
+
+    port: int = int(os.getenv("PORT", "9000"))
+
+    http_connect_timeout: float = float(os.getenv("HTTP_CONNECT_TIMEOUT", "5"))
+    http_read_timeout: float = float(os.getenv("HTTP_READ_TIMEOUT", "8"))
+    http_write_timeout: float = float(os.getenv("HTTP_WRITE_TIMEOUT", "8"))
+    http_pool_timeout: float = float(os.getenv("HTTP_POOL_TIMEOUT", "5"))
+
+settings = Settings()
+
+--- app/core/http_client.py ---
+# app/core/http_client.py
+import base64
+import httpx
+from .config import settings
+
+def make_basic_auth_header(username: str, password: str) -> str:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return f"Basic {token}"
+
+class JavaClient:
+
+    def __init__(self) -> None:
+        self.base_url = settings.java_base_url.rstrip("/")
+        self._svc_headers = {
+            "Authorization": make_basic_auth_header(settings.java_svc_username, settings.java_svc_password),
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        self._timeout = httpx.Timeout(
+            connect=settings.http_connect_timeout,
+            read=settings.http_read_timeout,
+            write=settings.http_write_timeout,
+            pool=settings.http_pool_timeout,
+        )
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self._svc_headers,
+            timeout=self._timeout,
+        )
+
+    def make_client(self, auth_header: str | None = None, extra_headers: dict | None = None):
+        headers = dict(self._svc_headers)
+        if auth_header is not None:
+            if auth_header == "":
+                headers.pop("Authorization", None)
+            else:
+                headers["Authorization"] = auth_header
+        if extra_headers:
+            headers.update(extra_headers)
+        return httpx.AsyncClient(base_url=self.base_url, headers=headers, timeout=self._timeout)
+
+    async def ensure_service_user(self) -> None:
+        body = {
+            "username": settings.java_svc_username,
+            "password": settings.java_svc_password,
+            "passwordConfirmation": settings.java_svc_password,
+        }
+        try:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=10) as c:
+                await c.post("/api/v1/users/registration", json=body)
+        except Exception:
+            pass
+
+    async def aclose(self):
+        await self._client.aclose()
+
+    async def get_products(self):
+        resp = await self._client.get("/api/v1/products/")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_product_by_id(self, product_id: str):
+        resp = await self._client.get(f"/api/v1/products/{product_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def like_product(self, product_id: str):
+        resp = await self._client.post(f"/api/v1/products/{product_id}/like")
+        resp.raise_for_status()
+        return resp.text
+
+    async def unlike_product(self, product_id: str):
+        resp = await self._client.delete(f"/api/v1/products/{product_id}/like")
+        if resp.status_code not in (200, 204):
+            resp.raise_for_status()
+        return {"status": resp.status_code}
+
+    async def buy_product(self, product_id: str):
+        resp = await self._client.post(f"/api/v1/products/{product_id}/buy")
+        resp.raise_for_status()
+        return resp.text
+
+    async def get_username(self):
+        resp = await self._client.get("/api/v1/users/me/username")
+        resp.raise_for_status()
+        return resp.text.strip('"')
+
+    async def get_categories(self):
+        resp = await self._client.get("/api/v1/categories/")
+        resp.raise_for_status()
+        return resp.text
+
+    async def aclose(self):
+        await self._client.aclose()
+
+java_client = JavaClient()
+
+--- app/core/cache.py ---
+import time
+import asyncio
+from typing import Any, Callable, Dict, Tuple
+
+class TTLCache:
+    def __init__(self, ttl_seconds: int = 60):
+        self.ttl = ttl_seconds
+        self._data: Dict[str, Tuple[float, Any]] = {}
+        self._lock = asyncio.Lock()
+
+    async def get_or_set(self, key: str, producer: Callable[[], Any]):
+        now = time.time()
+        async with self._lock:
+            if key in self._data:
+                ts, val = self._data[key]
+                if now - ts < self.ttl:
+                    return val
+            val = await producer()
+            self._data[key] = (now, val)
+            return val
+
+    async def invalidate(self, key: str | None = None):
+        async with self._lock:
+            if key is None:
+                self._data.clear()
+            else:
+                self._data.pop(key, None)
+
+--- app/models/dto.py ---
+from pydantic import BaseModel
+
+class JavaProduct(BaseModel):
+    id: str
+    brand: str | None = None
+    model: str | None = None
+    price: int | None = None
+    category: str | None = None
+
+--- app/services/store.py ---
+import asyncio
+from typing import Dict, List, Literal, TypedDict
+from collections import defaultdict
+from datetime import datetime
+
+Action = Literal["VIEW", "LIKE", "PURCHASE"]
+
+class Event(TypedDict):
+    user_id: str
+    product_id: str
+    action: Action
+    ts: str  # ISO
+
+class InMemoryEventStore:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self.events_by_user: Dict[str, List[Event]] = defaultdict(list)
+        self.popularity: Dict[str, int] = defaultdict(int)
+
+    def _weight(self, action: Action) -> int:
+        if action == "VIEW":
+            return 1
+        if action == "LIKE":
+            return 3
+        if action == "PURCHASE":
+            return 5
+        return 0
+
+    async def ingest(self, evs: List[Event]):
+        async with self._lock:
+            for e in evs:
+                if not e.get("ts"):
+                    e["ts"] = datetime.utcnow().isoformat() + "Z"
+                self.events_by_user[e["user_id"]].append(e)
+                self.popularity[e["product_id"]] += self._weight(e["action"])
+
+    async def user_vector(self, user_id: str) -> Dict[str, int]:
+        async with self._lock:
+            vec: Dict[str, int] = defaultdict(int)
+            for e in self.events_by_user.get(user_id, []):
+                vec[e["product_id"]] += self._weight(e["action"])
+            return dict(vec)
+
+    async def top_popular(self, k: int = 50) -> List[str]:
+        async with self._lock:
+            return [pid for pid, _ in sorted(self.popularity.items(), key=lambda x: x[1], reverse=True)[:k]]
+
+store = InMemoryEventStore()

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Пользователь</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Reco Demo</div>
+  <nav>
+    <a href="/">Каталог</a>
+    <a class="active" href="/user.html">Пользователь</a>
+  </nav>
+  <div class="status">status: <span data-auth-status>anonymous</span></div>
+</header>
+
+<main class="container narrow">
+  <section class="panel">
+    <h2>Регистрация</h2>
+    <div class="form-row">
+      <input id="regUser" placeholder="username" />
+      <input id="regPass" type="password" placeholder="password" />
+      <button id="btnRegister" class="btn">Зарегистрироваться</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Логин (Basic)</h2>
+    <div class="form-row">
+      <input id="loginUser" placeholder="username" />
+      <input id="loginPass" type="password" placeholder="password" />
+      <button id="btnLogin" class="btn">Войти</button>
+      <button id="btnLogout" class="btn ghost">Выйти</button>
+    </div>
+    <p class="hint">Сессия хранится только в памяти и <b>сбросится при обновлении страницы</b>.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Действия</h2>
+    <div class="btn-row">
+      <button id="btnWhoAmI" class="btn">Who am I</button>
+      <button id="btnHistory" class="btn">History</button>
+    </div>
+  </section>
+
+  <section>
+    <h3>Результат</h3>
+    <div id="pretty" class="pretty"></div>
+    <pre id="output" class="log hidden"></pre>
+  </section>
+</main>
+
+<script type="module" src="/common.js"></script>
+<script type="module" src="/user.js"></script>
+</body>
+</html>

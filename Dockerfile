@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# ускорение установки
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY app ./app
+
+EXPOSE 9000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]

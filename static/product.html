@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Товар</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Reco Demo</div>
+  <nav>
+    <a href="/">Каталог</a>
+    <a href="/user.html">Пользователь</a>
+    <a href="/cart.html">Корзина (<span data-cart-count>0</span>)</a>
+  </nav>
+  <div class="status">status: <span data-auth-status>anonymous</span></div>
+</header>
+
+<main class="container">
+  <section id="productBox"></section>
+
+  <section>
+    <h3>Результат</h3>
+    <pre id="output" class="log"></pre>
+  </section>
+</main>
+
+<script type="module" src="/common.js"></script>
+<script type="module" src="/product.js"></script>
+</body>
+</html>
