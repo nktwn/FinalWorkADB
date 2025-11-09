@@ -84,7 +84,6 @@ async def me_recommendation(request: Request):
 
 @router.get("/products")
 async def list_products(request: Request, use_cache: bool = Query(True)):
-    """Каталог можно без авторизации; с авторизацией идём мимо кеша."""
     auth = _auth_from_request(request)
     extra = _extra_headers(request)
 
@@ -105,11 +104,9 @@ async def list_products(request: Request, use_cache: bool = Query(True)):
 
 @router.get("/products/by-category")
 async def products_by_category(request: Request, category: str = Query(..., description="CSV: LAPTOP,PHONE,...")):
-    """Прокси к Java: GET /api/v1/products/by-category?category=A,B,C"""
     auth = _auth_from_request(request)
     extra = _extra_headers(request)
 
-    # нормализуем к UPPER_CASE для совместимости с enum на Java
     categories_csv = ",".join([c.strip().upper() for c in category.split(",") if c.strip()])
     params = {"category": categories_csv} if categories_csv else {}
 

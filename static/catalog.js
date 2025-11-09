@@ -1,44 +1,10 @@
-const out = (msg) => {
-  const el = document.getElementById("output");
-  if (!el) return;
-  el.textContent =
-    typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
-};
-
-function getUsername() {
-  return localStorage.getItem("USERNAME") || "";
-}
-function reflectAuthStatus() {
-  const span = document.getElementById("authStatus");
-  if (!span) return;
-  const u = getUsername();
-  if (!u) {
-    span.textContent = "anonymous";
-    span.style.color = "#c77800";
-  } else {
-    span.textContent = `user: ${u}`;
-    span.style.color = "#0e7a4b";
-  }
-}
+import { fetchJSON, out, reflectAuthStatus, getAuthToken } from "./common.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-}
-
-async function fetchJSON(url, opts = {}) {
-  opts.headers = opts.headers || {};
-  const u = getUsername();
-  if (u) opts.headers["X-User"] = u;
-  const r = await fetch(url, opts);
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error(`HTTP ${r.status}: ${txt}`);
-  }
-  const ct = r.headers.get("content-type") || "";
-  return ct.includes("application/json") ? r.json() : r.text();
 }
 
 async function loadProducts({ useCache = false } = {}) {
@@ -122,12 +88,12 @@ async function onSearch() {
 }
 
 async function maybeLoadRecommendations() {
-  const sec = document.getElementById("recoSection");
+  const sec  = document.getElementById("recoSection");
   const list = document.getElementById("recoList");
   const hint = document.getElementById("recoHint");
   if (!sec || !list) return;
 
-  if (!getUsername()) {
+  if (!getAuthToken()) {
     sec.style.display = "none";
     return;
   }

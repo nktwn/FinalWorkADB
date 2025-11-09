@@ -7,7 +7,6 @@ def write_tree_and_file_contents(root_dir, output_file):
             for i, item in enumerate(items):
                 path = os.path.join(dir_path, item)
 
-                # Пропускаем виртуальные окружения и скрытые папки
                 if item in {".venv", "__pycache__"} or item.startswith("."):
                     continue
 
@@ -24,12 +23,10 @@ def write_tree_and_file_contents(root_dir, output_file):
 
         count = 0
         for dirpath, _, filenames in os.walk(root_dir):
-            # Пропускаем .venv и скрытые каталоги
             if ".venv" in dirpath.split(os.sep) or "__pycache__" in dirpath:
                 continue
 
             for filename in filenames:
-                # Фильтруем нужные расширения
                 if filename.endswith((".py", ".js", ".html", ".env")):
                     filepath = os.path.join(dirpath, filename)
                     relpath = os.path.relpath(filepath, root_dir)
