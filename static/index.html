@@ -14,15 +14,16 @@
     <a href="/user.html">Профиль</a>
     <a href="/cart.html">Корзина</a>
   </nav>
+  <div class="status"><span id="authStatus">anonymous</span></div>
 </header>
 
 <main class="container">
   <section class="panel">
-    <div class="row">
+    <div class="row toolbar">
       <input id="searchInput" type="text" placeholder="Поиск по бренду/модели/категории…" />
       <button id="btnSearch" class="btn">Найти</button>
     </div>
-    <div id="output" class="output mono"></div>
+    <div id="output" class="log mono"></div>
   </section>
 
   <section id="recoSection" class="panel" style="display:none;">
@@ -31,6 +32,25 @@
       <div id="recoHint" class="muted">Нужна авторизация</div>
     </div>
     <div id="recoList" class="grid"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>Фильтр по категориям</h2>
+      <div class="muted">Enum Java: LAPTOP, PC, HEADPHONE, SMART_WATCH, CAMERA, PHONE</div>
+    </div>
+    <div id="catFilters" class="form-row">
+      <label class="chip"><input type="checkbox" value="LAPTOP"> LAPTOP</label>
+      <label class="chip"><input type="checkbox" value="PC"> PC</label>
+      <label class="chip"><input type="checkbox" value="HEADPHONE"> HEADPHONE</label>
+      <label class="chip"><input type="checkbox" value="SMART_WATCH"> SMART_WATCH</label>
+      <label class="chip"><input type="checkbox" value="CAMERA"> CAMERA</label>
+      <label class="chip"><input type="checkbox" value="PHONE"> PHONE</label>
+    </div>
+    <div class="btn-row">
+      <button id="btnApplyCats" class="btn outline">Применить фильтр</button>
+      <button id="btnResetCats" class="btn ghost">Сбросить</button>
+    </div>
   </section>
 
   <section class="panel">

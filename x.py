@@ -1,13 +1,14 @@
 import os
 
-def write_tree_and_py_content(root_dir, output_file):
+def write_tree_and_file_contents(root_dir, output_file):
     with open(output_file, "w", encoding="utf-8") as f:
         def walk(dir_path, prefix=""):
             items = sorted(os.listdir(dir_path))
             for i, item in enumerate(items):
                 path = os.path.join(dir_path, item)
 
-                if item == ".venv":
+                # Пропускаем виртуальные окружения и скрытые папки
+                if item in {".venv", "__pycache__"} or item.startswith("."):
                     continue
 
                 connector = "└── " if i == len(items) - 1 else "├── "
@@ -19,23 +20,30 @@ def write_tree_and_py_content(root_dir, output_file):
         f.write(f"{os.path.basename(root_dir)}\n")
         walk(root_dir)
 
-        f.write("\n\n# Python and .env files content\n\n")
+        f.write("\n\n# Содержимое Python, JavaScript, HTML и .env файлов\n\n")
+
+        count = 0
         for dirpath, _, filenames in os.walk(root_dir):
-            if ".venv" in dirpath.split(os.sep):
+            # Пропускаем .venv и скрытые каталоги
+            if ".venv" in dirpath.split(os.sep) or "__pycache__" in dirpath:
                 continue
 
             for filename in filenames:
-                if filename.endswith(".py") or filename.endswith(".env"):
+                # Фильтруем нужные расширения
+                if filename.endswith((".py", ".js", ".html", ".env")):
                     filepath = os.path.join(dirpath, filename)
                     relpath = os.path.relpath(filepath, root_dir)
                     f.write(f"\n--- {relpath} ---\n")
                     try:
-                        with open(filepath, "r", encoding="utf-8") as pyf:
-                            f.write(pyf.read())
+                        with open(filepath, "r", encoding="utf-8") as source_file:
+                            f.write(source_file.read())
+                            count += 1
                     except Exception as e:
                         f.write(f"\n[Ошибка чтения файла: {e}]\n")
 
+        f.write(f"\n\n# Всего файлов записано: {count}\n")
+
 if __name__ == "__main__":
     current_dir = os.getcwd()
-    write_tree_and_py_content(current_dir, "project_structure.txt")
-    print("Готово! Смотри файл project_structure.txt")
+    write_tree_and_file_contents(current_dir, "project_structure.txt")
+    print("✅ Готово! Смотри файл project_structure.txt")

@@ -64,6 +64,24 @@ async def me_history(request: Request, limit: int | None = None, all: bool | Non
     return resp.json()
 
 
+@router.get("/users/me/recommendation")
+async def me_recommendation(request: Request):
+    _ensure_auth_or_401(request)
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.get("/api/v1/users/me/recommendation")
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"Java recommendation failed: {resp.text}")
+    return resp.json()
+
+
 @router.get("/products")
 async def list_products(request: Request, use_cache: bool = Query(True)):
     """Каталог можно без авторизации; с авторизацией идём мимо кеша."""
@@ -82,6 +100,30 @@ async def list_products(request: Request, use_cache: bool = Query(True)):
         return resp.json()
 
     data = await (_products_cache.get_or_set("all_products", producer) if use_cache and not auth else producer())
+    return {"count": len(data), "items": data}
+
+
+@router.get("/products/by-category")
+async def products_by_category(request: Request, category: str = Query(..., description="CSV: LAPTOP,PHONE,...")):
+    """Прокси к Java: GET /api/v1/products/by-category?category=A,B,C"""
+    auth = _auth_from_request(request)
+    extra = _extra_headers(request)
+
+    # нормализуем к UPPER_CASE для совместимости с enum на Java
+    categories_csv = ",".join([c.strip().upper() for c in category.split(",") if c.strip()])
+    params = {"category": categories_csv} if categories_csv else {}
+
+    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
+        resp = await c.get("/api/v1/products/by-category", params=params)
+
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail=f"Java products/by-category failed: {resp.text}")
+
+    data = resp.json()
     return {"count": len(data), "items": data}
 
 
@@ -161,24 +203,3 @@ async def buy_product(request: Request, product_id: str):
 
     return {"message": resp.text or "OK"}
 
-@router.get("/users/me/recommendation")
-async def me_recommendation(request: Request):
-
-    if not (_auth_from_request(request) or _extra_headers(request)):
-        raise HTTPException(status_code=401, detail="Authorization required")
-
-    auth = _auth_from_request(request)
-    extra = _extra_headers(request)
-
-    async with java_client.make_client(auth_header=auth, extra_headers=extra) as c:
-        resp = await c.get("/api/v1/users/me/recommendation")
-
-    if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    try:
-        resp.raise_for_status()
-    except Exception:
-        raise HTTPException(status_code=502, detail=f"Java recommendation failed: {resp.text}")
-
-    return resp.json()
